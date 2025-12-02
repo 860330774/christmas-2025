@@ -2,38 +2,34 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Silky Smooth Christmas (Big Brush)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Magical Christmas</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            overflow: hidden;
+            overflow: hidden; /* 禁止滚动条 */
             background-color: #050505;
             height: 100vh;
             width: 100vw;
-            cursor: none;
+            cursor: none; /* 电脑端隐藏鼠标 */
             user-select: none;
+            -webkit-user-select: none; /* 兼容 Safari */
+            touch-action: none; /* 关键：禁止所有默认触摸行为（如滚动、回弹） */
         }
 
-        /* 1. 底层：静态背景 (树 + 字) */
-        #bgCanvas {
+        canvas {
             position: absolute;
             top: 0; left: 0;
-            z-index: 1;
+            width: 100%; height: 100%;
         }
 
-        /* 2. 中间层：动态雾气 */
-        #fogCanvas {
-            position: absolute;
-            top: 0; left: 0;
-            z-index: 10;
-        }
+        #bgCanvas { z-index: 1; }
+        #fogCanvas { z-index: 10; }
 
-        /* 3. 提示文字 */
         .guide {
             position: absolute;
-            bottom: 50px; left: 50%;
+            bottom: 10%; left: 50%;
             transform: translateX(-50%);
             color: rgba(255, 255, 255, 0.4);
             font-family: sans-serif;
@@ -41,11 +37,12 @@
             letter-spacing: 2px;
             pointer-events: none;
             z-index: 11;
+            white-space: nowrap; /* 防止文字换行 */
             animation: fadeOut 4s forwards 2s;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
         }
         @keyframes fadeOut { to { opacity: 0; } }
 
-        /* 4. 掉落粒子 */
         .falling-item {
             position: absolute;
             pointer-events: none;
@@ -55,17 +52,22 @@
             filter: drop-shadow(0 0 2px rgba(255,255,255,0.5));
         }
 
-        /* 光标 */
         #cursor-glow {
             position: absolute;
-            width: 80px; /* 光标光晕也稍微调大一点 */
-            height: 80px;
+            width: 80px; height: 80px;
             border-radius: 50%;
             background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 70%);
             transform: translate(-50%, -50%);
             pointer-events: none;
             z-index: 9998;
             mix-blend-mode: screen;
+            /* 手机端隐藏光标，因为手指会挡住 */
+            display: none; 
+        }
+
+        /* 仅在支持 hover 的设备（电脑）上显示光标 */
+        @media (hover: hover) {
+            #cursor-glow { display: block; }
         }
     </style>
 </head>
@@ -73,24 +75,40 @@
 
     <canvas id="bgCanvas"></canvas>
     <canvas id="fogCanvas"></canvas>
-    <div class="guide">滑动鼠标，擦除魔法气泡...</div>
+    <div class="guide">在屏幕上滑动，点亮圣诞树...</div>
     <div id="cursor-glow"></div>
 
     <script>
-        // === 全局 ===
-        let width = window.innerWidth;
-        let height = window.innerHeight;
+        // === 全局变量 ===
+        let width, height, dpr;
 
-        // === 1. 静态背景层 ===
+        // === 1. 静态背景层 (树 + 字) ===
         const bgCvs = document.getElementById('bgCanvas');
         const bCtx = bgCvs.getContext('2d');
 
+        // 核心：处理高清屏 (Retina) 和 尺寸重置
+        function resizeCanvas(canvas, ctx) {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            dpr = window.devicePixelRatio || 1;
+
+            // 设置物理像素大小 (清晰度关键)
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+
+            // 设置 CSS 显示大小
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+
+            // 统一缩放上下文，后面画画时直接用逻辑坐标
+            ctx.scale(dpr, dpr);
+        }
+
         function initBackground() {
-            bgCvs.width = width;
-            bgCvs.height = height;
+            resizeCanvas(bgCvs, bCtx);
 
             // 背景渐变
-            const gradient = bCtx.createRadialGradient(width/2, height/2, 0, width/2, height/2, height);
+            const gradient = bCtx.createRadialGradient(width/2, height/2, 0, width/2, height/2, Math.max(width, height));
             gradient.addColorStop(0, '#1a0b2e'); 
             gradient.addColorStop(1, '#000000'); 
             bCtx.fillStyle = gradient;
@@ -101,21 +119,32 @@
         }
 
         function drawStaticTree() {
-            const startY = height * 0.25;
-            const endY = height * 0.9;
+            // 适配逻辑：基于屏幕较短的一边来计算树的大小
+            // 这样在超宽屏上树不会太胖，在手机上树不会画出屏幕
+            const minDim = Math.min(width, height);
+            
+            // 树的高度占比
+            const startY = height * 0.2; // 顶部留空
+            const endY = height * 0.85;  // 底部留空
             const treeHeight = endY - startY;
 
             bCtx.save();
             bCtx.shadowBlur = 15;
             bCtx.shadowColor = "gold";
             
-            for (let i = 0; i < 400; i++) {
+            // 增加粒子密度
+            for (let i = 0; i < 500; i++) {
                 const yRatio = Math.random();
                 const y = startY + yRatio * treeHeight;
-                const maxRadius = 10 + yRatio * (width * 0.22);
+                
+                // 树的宽度：基于 minDim 计算，保证比例协调
+                // 手机端稍微宽一点 (0.35)，电脑端正常
+                const widthFactor = width < height ? 0.35 : 0.25;
+                const maxRadius = 10 + yRatio * (minDim * widthFactor * 2);
+
                 const angle = Math.random() * Math.PI * 2;
                 const r = Math.sqrt(Math.random()) * maxRadius;
-                const x = width/2 + Math.cos(angle) * r;
+                const x = width/2 + Math.cos(angle) * r; // 永远居中
                 
                 const colors = ['#FFD700', '#FF3333', '#33FF33', '#FFFFFF'];
                 const color = colors[Math.floor(Math.random() * colors.length)];
@@ -131,14 +160,19 @@
             bCtx.shadowColor = "#ffff00";
             bCtx.fillStyle = "#ffffaa";
             bCtx.beginPath();
-            bCtx.arc(width/2, startY - 10, 12, 0, Math.PI*2);
+            // 星星大小也自适应
+            bCtx.arc(width/2, startY - 15, minDim * 0.03, 0, Math.PI*2);
             bCtx.fill();
             bCtx.restore();
         }
 
         function drawArtText() {
             bCtx.save();
-            const fontSize = Math.min(width, height) * 0.12;
+            // 适配逻辑：字体大小基于屏幕宽度，但设有上限和下限
+            let fontSize = width < height ? width * 0.15 : height * 0.15;
+            // 限制最大字号，防止带鱼屏上字太大
+            if (fontSize > 150) fontSize = 150;
+
             bCtx.font = `bold italic ${fontSize}px "Brush Script MT", cursive, serif`;
             bCtx.textAlign = "center";
             bCtx.textBaseline = "middle";
@@ -194,13 +228,17 @@
         }
 
         function initFog() {
-            fogCvs.width = width;
-            fogCvs.height = height;
-            maskCvs.width = width;
-            maskCvs.height = height;
+            resizeCanvas(fogCvs, fCtx);
+            
+            // 离屏Canvas也需要适配尺寸，否则刮痕位置会对不上
+            maskCvs.width = width * dpr;
+            maskCvs.height = height * dpr;
+            mCtx.scale(dpr, dpr); // 离屏也要缩放
 
             bubbles = [];
-            for(let i=0; i<100; i++) {
+            // 手机端减少气泡数量以提升性能
+            const bubbleCount = width < 600 ? 60 : 120;
+            for(let i=0; i<bubbleCount; i++) {
                 const b = new Bubble();
                 b.y = Math.random() * height;
                 bubbles.push(b);
@@ -210,30 +248,28 @@
         function renderFogLoop() {
             fCtx.clearRect(0, 0, width, height);
 
-            // 背景雾色
             fCtx.fillStyle = 'rgba(15, 20, 30, 0.9)'; 
             fCtx.fillRect(0, 0, width, height);
 
-            // 绘制气泡
             bubbles.forEach(b => {
                 b.update();
                 b.draw(fCtx);
             });
 
-            // 应用刮痕 Mask
             fCtx.globalCompositeOperation = 'destination-out';
-            fCtx.drawImage(maskCvs, 0, 0);
+            // 注意：drawImage 时要绘制整个离屏 canvas
+            fCtx.drawImage(maskCvs, 0, 0, width, height);
             fCtx.globalCompositeOperation = 'source-over';
 
             requestAnimationFrame(renderFogLoop);
         }
 
-        // --- 核心修改：加大笔刷 ---
+        // 擦除逻辑
         function scratch(x, y) {
             mCtx.lineCap = 'round';
             mCtx.lineJoin = 'round';
-            // 修改点 1: 线条宽度从 80 改为 150
-            mCtx.lineWidth = 150; 
+            // 笔刷大小自适应：手机上稍微小一点，电脑上大一点
+            mCtx.lineWidth = width < 600 ? 100 : 150; 
             mCtx.strokeStyle = '#000';
             
             mCtx.beginPath();
@@ -242,10 +278,9 @@
                 mCtx.lineTo(x, y);
                 mCtx.stroke();
             }
-            
-            // 修改点 2: 补漏圆点的半径从 40 改为 75 (lineWidth的一半)
+            // 补点
             mCtx.beginPath();
-            mCtx.arc(x, y, 75, 0, Math.PI*2);
+            mCtx.arc(x, y, mCtx.lineWidth / 2, 0, Math.PI*2);
             mCtx.fill();
 
             lastPos = {x, y};
@@ -264,9 +299,7 @@
                 this.el.innerText = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
                 document.body.appendChild(this.el);
                 
-                // 稍微分散一点掉落位置
-                this.x = x + (Math.random()-0.5)*30; 
-                this.y = y + (Math.random()-0.5)*30;
+                this.x = x; this.y = y;
                 this.vx = (Math.random() - 0.5) * 6;
                 this.vy = Math.random() * -6 - 3; 
                 this.grav = 0.4;
@@ -278,7 +311,7 @@
                 this.y += this.vy;
                 this.vy += this.grav;
                 this.rot += 5;
-                this.life -= 0.02; 
+                this.life -= 0.02;
                 this.el.style.transform = `translate(${this.x}px, ${this.y}px) rotate(${this.rot}deg)`;
                 this.el.style.opacity = this.life;
             }
@@ -296,12 +329,15 @@
             requestAnimationFrame(loopParticles);
         }
 
-        // === 4. 交互绑定 ===
+        // === 4. 事件交互 (核心适配) ===
         const cursor = document.getElementById('cursor-glow');
 
         function handleInput(x, y) {
-            cursor.style.left = x + 'px';
-            cursor.style.top = y + 'px';
+            // 光标跟随 (仅在非触摸设备有效)
+            if (cursor.style.display !== 'none') {
+                cursor.style.left = x + 'px';
+                cursor.style.top = y + 'px';
+            }
             
             scratch(x, y);
 
@@ -311,6 +347,7 @@
             }
         }
 
+        // 鼠标事件
         document.addEventListener('mousemove', e => {
             if (lastPos && Math.hypot(e.clientX - lastPos.x, e.clientY - lastPos.y) > 100) {
                 lastPos = { x: e.clientX, y: e.clientY };
@@ -319,13 +356,31 @@
         });
         document.addEventListener('mouseup', () => lastPos = null);
         
+        // 触摸事件 (适配手机)
+        document.addEventListener('touchmove', e => {
+            e.preventDefault(); // 极其重要：防止手机页面滚动
+            const t = e.touches[0];
+            // 手机上可能跳跃较大，同样做一下防跳处理
+            if (lastPos && Math.hypot(t.clientX - lastPos.x, t.clientY - lastPos.y) > 100) {
+                lastPos = { x: t.clientX, y: t.clientY };
+            }
+            handleInput(t.clientX, t.clientY);
+        }, { passive: false });
+
+        document.addEventListener('touchend', () => lastPos = null);
+        
+        // 窗口大小改变 (旋转屏幕/缩放浏览器)
         window.addEventListener('resize', () => {
+            // 需要重新获取宽高并重绘
             width = window.innerWidth;
             height = window.innerHeight;
             initBackground();
             initFog();
         });
 
+        // 启动
+        width = window.innerWidth;
+        height = window.innerHeight;
         initBackground();
         initFog();
         renderFogLoop();
